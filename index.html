@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visualizador de PDFs</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+      body {
+        background-color: #f8f9fa;
+        padding: 20px;
+        color: #333;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #1a73e8;
+      }
+      .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 20px;
+      }
+      .card {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        cursor: pointer;
+      }
+      .thumbnail {
+        height: 160px;
+        background-color: #f1f3f4;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+      }
+      .thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .pdf-icon {
+        font-size: 48px;
+        color: #f44336;
+      }
+      .card-content {
+        padding: 12px;
+      }
+      .card-title {
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .card-details {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: #5f6368;
+      }
+      @media (max-width: 768px) {
+        .cards-grid {
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Visualizador de PDFs</h1>
+      <div id="cards-grid" class="cards-grid">
+        <!-- Cards serão gerados dinamicamente -->
+      </div>
+    </div>
+
+    <script>
+      // Variável global para o elemento
+      let cardsGrid;
+
+      function formatDate(dateString) {
+        const options = { day: "2-digit", month: "2-digit", year: "numeric" };
+        return new Date(dateString).toLocaleDateString("pt-BR", options);
+      }
+
+      function getThumbnailUrl(fileId) {
+        return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+      }
+
+      function extractFileId(url) {
+        const match = url.match(/\/d\/([^\/]+)/);
+        return match ? match[1] : null;
+      }
+
+      async function fetchPdfFiles(folderName) {
+        try {
+          const res = await fetch(
+            `https://n8n.convet.com.br/webhook/folder-files?folderName=${encodeURIComponent(
+              folderName
+            )}`
+          );
+
+          if (!res.ok) {
+            console.error("Erro na resposta:", res.status);
+            return [];
+          }
+
+          const data = await res.json();
+          return data[0]?.files || [];
+        } catch (error) {
+          console.error("Erro ao buscar arquivos:", error);
+          return [];
+        }
+      }
+
+      function createCards(pdfFiles) {
+        // Verifica se o elemento existe
+        if (!cardsGrid) {
+          console.error("Elemento cards-grid não encontrado");
+          return;
+        }
+
+        // Limpa o conteúdo anterior
+        cardsGrid.innerHTML = "";
+
+        if (pdfFiles.length === 0) {
+          cardsGrid.innerHTML =
+            '<p style="grid-column: 1/-1; text-align: center; padding: 20px;">Nenhum arquivo encontrado</p>';
+          return;
+        }
+
+        pdfFiles.forEach((file, index) => {
+          if (!file.webViewLink) {
+            console.warn("Arquivo sem webViewLink:", file.name);
+            return;
+          }
+
+          const fileId = extractFileId(file.webViewLink);
+          if (!fileId) {
+            console.warn("Não foi possível extrair fileId:", file.webViewLink);
+            return;
+          }
+
+          const card = document.createElement("div");
+          card.className = "card";
+          card.setAttribute("data-id", file.id);
+
+          card.innerHTML = `
+            <div class="thumbnail">
+              <img src="${getThumbnailUrl(fileId)}" alt="${file.name}"
+              onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\"pdf-icon\"></div>
+            </div>
+            <div class="card-content">
+              <div class="card-title" title="${file.name}">${file.name}</div>
+              <div class="card-details">
+                <span>${formatDate(file.modifiedTime)}</span>
+                <span>PDF</span>
+              </div>
+            </div>
+          `;
+
+          card.addEventListener("click", () => {
+            console.log("Download com watermark:", file.name);
+            downloadWithWatermark(file.id, "Aluno Watermark", "123.456.789.00");
+          });
+
+          cardsGrid.appendChild(card);
+        });
+      }
+
+      async function downloadWithWatermark(folderId, name, cpf) {
+        try {
+          const res = await fetch(
+            "https://n8n.convet.com.br/webhook/watermark",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ folderId, name, cpf }),
+            }
+          );
+
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          window.open(url, "_blank");
+        } catch (error) {
+          console.error("Erro no download:", error);
+          alert("Erro ao gerar PDF com marca d'água.");
+        }
+      }
+
+      // Lifecycle corrigido
+      document.addEventListener("DOMContentLoaded", async () => {
+        console.log("DOM Carregado");
+
+        // Inicializa o elemento após o DOM estar pronto
+        cardsGrid = document.getElementById("cards-grid");
+
+        if (!cardsGrid) {
+          console.error("Elemento #cards-grid não encontrado no DOM");
+          return;
+        }
+
+        // Adiciona loading state
+        cardsGrid.innerHTML =
+          '<p style="grid-column: 1/-1; text-align: center; padding: 20px;">Carregando arquivos...</p>';
+
+        try {
+          const pdfFiles = await fetchPdfFiles("apostilas");
+          createCards(pdfFiles);
+        } catch (error) {
+          console.error("Erro no lifecycle:", error);
+          cardsGrid.innerHTML =
+            '<p style="grid-column: 1/-1; text-align: center; padding: 20px; color: red;">Erro ao carregar arquivos</p>';
+        }
+      });
+
+      // Fallback: tenta inicializar quando a window carregar completamente
+      window.addEventListener("load", () => {
+        console.log("Window totalmente carregada");
+      });
+    </script>
+  </body>
+</html>
